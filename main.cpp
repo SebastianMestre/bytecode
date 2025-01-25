@@ -66,6 +66,8 @@ enum class Opcode : Bytecode {
 	PushFun,
 	Call,
 	Return,
+	Declare,
+	Undeclare,
 };
 
 struct VirtualMachine {
@@ -160,6 +162,16 @@ struct VirtualMachine {
 		}
 	}
 
+	void declare() {
+		Box b = new Value;
+		*b = Value::Int(0);
+		env.push_back(b);
+	}
+
+	void undeclare() {
+		env.pop_back();
+	}
+
 	void interpret(Bytecode* code) {
 		int pc = 0;
 		while (true) 
@@ -216,6 +228,12 @@ struct VirtualMachine {
 			} break;
 			case Opcode::Return: {
 				return;
+			} break;
+			case Opcode::Declare: {
+				declare();
+			} break;
+			case Opcode::Undeclare: {
+				undeclare();
 			} break;
 			case Opcode::Halt: {
 				is_halted = true;
