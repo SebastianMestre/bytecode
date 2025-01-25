@@ -243,132 +243,208 @@ struct VirtualMachine {
 	}
 };
 
+
+struct BytecodeBuilder {
+	std::vector<std::vector<Bytecode>> segments;
+	int current_segment;
+
+
+	int begin_segment() {
+		int old_segment = current_segment;
+		current_segment = segments.size();
+		segments.push_back({});
+		return old_segment;
+	}
+
+	int end_segment(int old_segment) {
+		int new_segment = current_segment;
+		current_segment = old_segment;
+		return new_segment;
+	}
+
+
+	void push_int(int value) {
+		opcode(Opcode::PushInt);
+		immediate(value);
+	}
+
+	void add() {
+		opcode(Opcode::Add);
+	}
+
+
+	void read() {
+		opcode(Opcode::Read);
+	}
+
+	void write() {
+		opcode(Opcode::Write);
+	}
+
+	void declare() {
+		opcode(Opcode::Declare);
+	}
+
+	void access(int offset) {
+		opcode(Opcode::Access);
+		immediate(offset);
+	}
+
+
+
+	int label() {
+		return segments[current_segment].size();
+	}
+
+	int jmp() {
+		int result = label();
+		opcode(Opcode::Jmp);
+		immediate(0xdeadbeef);
+		return result;
+	}
+
+	int jmp_zero() {
+		int result = label();
+		opcode(Opcode::JmpZero);
+		immediate(0xcafebabe);
+		return result;
+	}
+
+	void patch(int jmp_address, int label) {
+		int imm_address = jmp_address + 1;
+		int jmp_origin = jmp_address + 1 + sizeof(int);
+		int offset = label - jmp_origin;
+		memcpy(&segments[current_segment][imm_address], &offset, sizeof(offset));
+	}
+
+	void push_fun(int segment, int capture_count) {
+		opcode(Opcode::PushFun);
+		immediate(segment);
+		immediate(capture_count);
+	}
+
+	void call(int arg_count) {
+		opcode(Opcode::Call);
+		immediate(arg_count);
+	}
+
+	void return_op() {
+		opcode(Opcode::Return);
+	}
+
+	void halt() {
+		opcode(Opcode::Halt);
+	}
+
+private:
+	void opcode(Opcode op) {
+		auto& code = segments[current_segment];
+		code.push_back(Bytecode(op));
+	}
+
+	void immediate(int value) {
+		auto& code = segments[current_segment];
+		Bytecode bytes[sizeof(value)];
+		memcpy(bytes, &value, sizeof(value));
+		for (int i = 0; i < sizeof(value); ++i) {
+			code.push_back(bytes[i]);
+		}
+	}
+};
+
+void print_bytecode(std::vector<Bytecode> const& code) {
+	printf("\n");
+	for (int i = 0; i < code.size(); ++i) {
+		if (i != 0) putchar(i % 8 == 0 ? '\n' : ' ');
+		printf("%02x", (unsigned int)(unsigned char)code[i]);
+	}
+	printf("\n");
+	printf("\n");
+}
+
 void ejemplo_fibonacci() {
 	VirtualMachine vm;
 
-	Box a = new Value; *a = Value::Int(0);
-	Box b = new Value; *b = Value::Int(1);
-	Box c = new Value; *c = Value::Int(0);
-	Box n = new Value; *n = Value::Int(8);
+	BytecodeBuilder bb;
 
-	vm.env.push_back(n);
-	vm.env.push_back(c);
-	vm.env.push_back(b);
-	vm.env.push_back(a);
+	bb.begin_segment();
 
-	std::vector<Bytecode> code;
-	
+	// n
+	bb.declare();
+	bb.access(0);
+	bb.push_int(8);
+	bb.write();
+
+	// c
+	bb.declare();
+	bb.access(0);
+	bb.push_int(0);
+	bb.write();
+
+	// b
+	bb.declare();
+	bb.access(0);
+	bb.push_int(1);
+	bb.write();
+
+	// a
+	bb.declare();
+	bb.access(0);
+	bb.push_int(0);
+	bb.write();
+
+	int loop_start = bb.label();
+
 	// if n == 0 jmp al final
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(3);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Read));
-	code.push_back(Bytecode(Opcode::JmpZero));
-	code.push_back(78);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
+	bb.access(3);
+	bb.read();
+	int cond_jmp = bb.jmp_zero();
 
 	// c = a+b
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(2);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Read));
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(1);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Read));
-	code.push_back(Bytecode(Opcode::Add));
-	code.push_back(Bytecode(Opcode::Write));
+	bb.access(2);
+	bb.access(0);
+	bb.read();
+	bb.access(1);
+	bb.read();
+	bb.add();
+	bb.write();
 
 	// a = b
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(1);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Read));
-	code.push_back(Bytecode(Opcode::Write));
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(1);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Read));
-	code.push_back(Bytecode(Opcode::Write));
+	bb.access(0);
+	bb.access(1);
+	bb.read();
+	bb.write();
 
 	// b = c
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(1);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(2);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Read));
-	code.push_back(Bytecode(Opcode::Write));
+	bb.access(1);
+	bb.access(2);
+	bb.read();
+	bb.write();
 
 	// n = n + (-1)
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(3);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Access));
-	code.push_back(3);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(0);
-	code.push_back(Bytecode(Opcode::Read));
-	code.push_back(Bytecode(Opcode::PushInt));
-	code.push_back(-1);
-	code.push_back(-1);
-	code.push_back(-1);
-	code.push_back(-1);
-	code.push_back(Bytecode(Opcode::Add));
-	code.push_back(Bytecode(Opcode::Write));
+	bb.access(3);
+	bb.access(3);
+	bb.read();
+	bb.push_int(-1);
+	bb.add();
+	bb.write();
 
-	code.push_back(Bytecode(Opcode::Jmp));
-	code.push_back(-89);
-	code.push_back(-1);
-	code.push_back(-1);
-	code.push_back(-1);
+	int back_jmp = bb.jmp();
 
-	code.push_back(Bytecode(Opcode::Halt));
+	int loop_end = bb.label();
 
-	for (int i = 0; i < code.size(); ++i) {
-		if (i != 0) putchar(i % 16 == 0 ? '\n' : ' ');
-		printf("0x%02x", (unsigned int)(unsigned char)code[i]);
-	}
-	printf("\n");
+	bb.patch(back_jmp, loop_start);
+	bb.patch(cond_jmp, loop_end);
 
-	vm.segments.push_back(std::move(code));
+	bb.halt();
+
+	print_bytecode(bb.segments[0]);
+
+	vm.segments = std::move(bb.segments);
 
 	vm.interpret(&vm.segments[0][0]);
+
+	auto b = vm.env[2];
 
 	std::cout << b->as_int << "\n";
 }
@@ -376,54 +452,34 @@ void ejemplo_fibonacci() {
 void ejemplo_funcion() {
 	VirtualMachine vm;
 
-	Box y = new Value; *y = Value::Int(3);
-	vm.env.push_back(y);
+	BytecodeBuilder bb;
 
-	std::vector<Bytecode> seg0;
-	seg0.push_back(Bytecode(Opcode::Access));
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(Bytecode(Opcode::PushFun));
-	seg0.push_back(1); // segment 1
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(1); // 1 capture
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(Bytecode(Opcode::PushInt));
-	seg0.push_back(2);
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(Bytecode(Opcode::Call));
-	seg0.push_back(1);
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(0);
-	seg0.push_back(Bytecode(Opcode::Halt));
+	bb.begin_segment();
 
-	std::vector<Bytecode> seg1;
-	seg1.push_back(Bytecode(Opcode::Access));
-	seg1.push_back(0);
-	seg1.push_back(0);
-	seg1.push_back(0);
-	seg1.push_back(0);
-	seg1.push_back(Bytecode(Opcode::Read));
-	seg1.push_back(Bytecode(Opcode::Access));
-	seg1.push_back(1);
-	seg1.push_back(0);
-	seg1.push_back(0);
-	seg1.push_back(0);
-	seg1.push_back(Bytecode(Opcode::Read));
-	seg1.push_back(Bytecode(Opcode::Add));
-	seg1.push_back(Bytecode(Opcode::Return));
+	bb.declare();
+	bb.access(0);
+	bb.push_int(3);
+	bb.write();
+	bb.access(0);
 
-	vm.segments.push_back(seg0);
-	vm.segments.push_back(seg1);
+	int s0 = bb.begin_segment();
+	bb.access(0);
+	bb.read();
+	bb.access(1);
+	bb.read();
+	bb.add();
+	bb.return_op();
+	int s1 = bb.end_segment(s0);
+	bb.push_fun(s1, 1);
+
+	bb.push_int(2);
+	bb.call(1);
+	bb.halt();
+
+	print_bytecode(bb.segments[0]);
+	print_bytecode(bb.segments[1]);
+
+	vm.segments = std::move(bb.segments);
 
 	vm.interpret(&vm.segments[0][0]);
 
@@ -432,4 +488,5 @@ void ejemplo_funcion() {
 
 int main() {
 	ejemplo_funcion();
+	ejemplo_fibonacci();
 }
