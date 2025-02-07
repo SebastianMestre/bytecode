@@ -129,6 +129,9 @@ struct VirtualMachine {
 		for (int i = 0; i < capture_count; ++i) {
 			captures[i] = temp[temp.size() - capture_count + i].as_box;
 		}
+		for (int i = 0; i < capture_count; ++i) {
+			temp.pop_back();
+		}
 		temp.push_back(Value::Fun(segment, capture_count, captures));
 	}
 
