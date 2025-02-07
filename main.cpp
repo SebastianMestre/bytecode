@@ -489,7 +489,234 @@ void ejemplo_funcion() {
 	std::cout << vm.temp.back().as_int << "\n";
 }
 
+namespace Ir { // intermediate representation
+
+struct Expr {
+	enum class Tag {
+		Int,
+		Add,
+		Var,
+	};
+
+	Expr(Tag tag)
+		: tag_{tag}
+	{}
+
+	Tag tag() { return tag_; }
+private:
+	Tag tag_;
+};
+
+struct Int : Expr {
+	int value;
+
+	Int(int value_)
+		: Expr(Tag::Int)
+		, value{value_}
+	{}
+};
+
+struct Add : Expr {
+	Expr* lhs;
+	Expr* rhs;
+
+	Add(Expr* lhs_, Expr* rhs_)
+		: Expr(Tag::Add)
+		, lhs{lhs_}
+		, rhs{rhs_}
+	{}
+};
+
+struct Var : Expr {
+	int offset;
+
+	Var(int offset_)
+		: Expr(Tag::Var)
+		, offset{offset_}
+	{}
+};
+
+
+struct Stmt {
+	enum class Tag {
+		While,
+		Block,
+		Assign,
+		Declare,
+	};
+
+	Stmt(Tag tag)
+		: tag_{tag}
+	{}
+
+	Tag tag() { return tag_; }
+private:
+	Tag tag_;
+};
+
+struct While : Stmt {
+	Expr* condition;
+	Stmt* body;
+
+	While(Expr* condition_, Stmt* body_)
+		: Stmt(Tag::While)
+		, condition{condition_}
+		, body{body_}
+	{}
+};
+
+struct Block : Stmt {
+	std::vector<Stmt*> body;
+
+	Block(std::vector<Stmt*> body_)
+		: Stmt(Tag::Block)
+		, body{std::move(body_)}
+	{}
+};
+
+struct Assign : Stmt {
+	int offset;
+	Expr* value;
+
+	Assign(int offset_, Expr* value_)
+		: Stmt(Tag::Assign)
+		, offset{offset_}
+		, value{value_}
+	{}
+};
+
+struct Declare : Stmt {
+	Declare()
+		: Stmt(Tag::Declare)
+	{}
+};
+
+} // namespace Ir
+
+struct Compiler {
+	BytecodeBuilder bb;
+
+	void compile(Ir::Int* e) {
+		bb.push_int(e->value);
+	}
+
+	void compile(Ir::Add* e) {
+		compile(e->lhs);
+		compile(e->rhs);
+		bb.add();
+	}
+
+	void compile(Ir::Var* e) {
+		bb.access(e->offset);
+		bb.read();
+	}
+
+	void compile(Ir::Expr* e) {
+		switch (e->tag()) {
+			case Ir::Expr::Tag::Int: return compile(static_cast<Ir::Int*>(e));
+			case Ir::Expr::Tag::Add: return compile(static_cast<Ir::Add*>(e));
+			case Ir::Expr::Tag::Var: return compile(static_cast<Ir::Var*>(e));
+		}
+	}
+
+	void compile_statement(Ir::While* e) {
+		int loop_start = bb.label();
+		compile(e->condition);
+		int cond_jmp = bb.jmp_zero();
+
+		compile_statement(e->body);
+
+		int back_jmp = bb.jmp();
+		int loop_end = bb.label();
+
+		bb.patch(back_jmp, loop_start);
+		bb.patch(cond_jmp, loop_end);
+	}
+
+	void compile_statement(Ir::Block* e) {
+		for (auto sub : e->body) {
+			compile_statement(sub);
+		}
+	}
+
+	void compile_statement(Ir::Assign* e) {
+		bb.access(e->offset);
+		compile(e->value);
+		bb.write();
+	}
+
+	void compile_statement(Ir::Declare* e) {
+		bb.declare();
+	}
+
+	void compile_statement(Ir::Stmt* e) {
+		switch (e->tag()) {
+			case Ir::Stmt::Tag::While: return compile_statement(static_cast<Ir::While*>(e));
+			case Ir::Stmt::Tag::Block: return compile_statement(static_cast<Ir::Block*>(e));
+			case Ir::Stmt::Tag::Assign: return compile_statement(static_cast<Ir::Assign*>(e));
+			case Ir::Stmt::Tag::Declare: return compile_statement(static_cast<Ir::Declare*>(e));
+		}
+	}
+};
+
+void ejemplo_fibonacci_ir() {
+	VirtualMachine vm;
+
+	Compiler cr;
+	auto& bb = cr.bb;
+
+	bb.begin_segment();
+
+	cr.compile_statement( new Ir::Block({
+		// n
+		new Ir::Declare(),
+		new Ir::Assign(0, new Ir::Int(8)),
+
+		// c
+		new Ir::Declare(),
+		new Ir::Assign(0, new Ir::Int(0)),
+
+		// b
+		new Ir::Declare(),
+		new Ir::Assign(0, new Ir::Int(1)),
+
+		// a
+		new Ir::Declare(),
+		new Ir::Assign(0, new Ir::Int(0)),
+
+		new Ir::While( new Ir::Var(3),
+			new Ir::Block({
+
+				// c = a+b
+				new Ir::Assign(2, new Ir::Add( new Ir::Var(0), new Ir::Var(1))),
+
+				// a = b
+				new Ir::Assign(0, new Ir::Var(1)),
+
+				// b = c
+				new Ir::Assign(1, new Ir::Var(2)),
+
+				// n = n + (-1)
+				new Ir::Assign(3, new Ir::Add( new Ir::Var(3), new Ir::Int(-1))),
+		}))
+
+	}));
+
+	bb.halt();
+
+	print_bytecode(bb.segments[0]);
+
+	vm.segments = std::move(bb.segments);
+
+	vm.interpret(&vm.segments[0][0]);
+
+	auto b = vm.env[2];
+
+	std::cout << b->as_int << "\n";
+}
+
 int main() {
 	ejemplo_funcion();
 	ejemplo_fibonacci();
+	ejemplo_fibonacci_ir();
 }
