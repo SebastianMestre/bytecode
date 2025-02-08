@@ -463,7 +463,6 @@ void ejemplo_funcion() {
 	bb.access(0);
 	bb.push_int(3);
 	bb.write();
-	bb.access(0);
 
 	int s0 = bb.begin_segment();
 	bb.access(0);
@@ -473,6 +472,8 @@ void ejemplo_funcion() {
 	bb.add();
 	bb.return_op();
 	int s1 = bb.end_segment(s0);
+
+	bb.access(0);
 	bb.push_fun(s1, 1);
 
 	bb.push_int(2);
@@ -496,6 +497,8 @@ struct Expr {
 		Int,
 		Add,
 		Var,
+		Fun,
+		Call,
 	};
 
 	Expr(Tag tag)
@@ -536,6 +539,31 @@ struct Var : Expr {
 	{}
 };
 
+struct Block;
+
+struct Fun : Expr {
+	std::vector<int> captures;
+	int argument_count;
+	Block* body;
+
+	Fun(std::vector<int> captures_, int argument_count_, Block* body_)
+		: Expr(Tag::Fun)
+		, captures{std::move(captures_)}
+		, argument_count{argument_count_}
+		, body{body_}
+	{}
+};
+
+struct Call : Expr {
+	Expr* target;
+	std::vector<Expr*> arguments;
+
+	Call(Expr* target_, std::vector<Expr*> arguments_)
+		: Expr(Tag::Call)
+		, target{target_}
+		, arguments{std::move(arguments_)}
+	{}
+};
 
 struct Stmt {
 	enum class Tag {
@@ -543,6 +571,7 @@ struct Stmt {
 		Block,
 		Assign,
 		Declare,
+		Return,
 	};
 
 	Stmt(Tag tag)
@@ -591,6 +620,15 @@ struct Declare : Stmt {
 	{}
 };
 
+struct Return : Stmt {
+	Expr* value;
+
+	Return(Expr* value_)
+		: Stmt(Tag::Return)
+		, value{value_}
+	{}
+};
+
 } // namespace Ir
 
 struct Compiler {
@@ -611,11 +649,32 @@ struct Compiler {
 		bb.read();
 	}
 
+	void compile(Ir::Fun* e) {
+		int s0 = bb.begin_segment();
+		compile_statement(e->body);
+		int s1 = bb.end_segment(s0);
+
+		for (int capture : e->captures) {
+			bb.access(capture);
+		}
+		bb.push_fun(s1, e->captures.size());
+	}
+
+	void compile(Ir::Call* e) {
+		compile(e->target);
+		for (auto argument : e->arguments) {
+			compile(argument);
+		}
+		bb.call(e->arguments.size());
+	}
+
 	void compile(Ir::Expr* e) {
 		switch (e->tag()) {
 			case Ir::Expr::Tag::Int: return compile(static_cast<Ir::Int*>(e));
 			case Ir::Expr::Tag::Add: return compile(static_cast<Ir::Add*>(e));
 			case Ir::Expr::Tag::Var: return compile(static_cast<Ir::Var*>(e));
+			case Ir::Expr::Tag::Fun: return compile(static_cast<Ir::Fun*>(e));
+			case Ir::Expr::Tag::Call: return compile(static_cast<Ir::Call*>(e));
 		}
 	}
 
@@ -649,15 +708,52 @@ struct Compiler {
 		bb.declare();
 	}
 
+	void compile_statement(Ir::Return* e) {
+		compile(e->value);
+		bb.return_op();
+	}
+
 	void compile_statement(Ir::Stmt* e) {
 		switch (e->tag()) {
 			case Ir::Stmt::Tag::While: return compile_statement(static_cast<Ir::While*>(e));
 			case Ir::Stmt::Tag::Block: return compile_statement(static_cast<Ir::Block*>(e));
 			case Ir::Stmt::Tag::Assign: return compile_statement(static_cast<Ir::Assign*>(e));
 			case Ir::Stmt::Tag::Declare: return compile_statement(static_cast<Ir::Declare*>(e));
+			case Ir::Stmt::Tag::Return: return compile_statement(static_cast<Ir::Return*>(e));
 		}
 	}
 };
+
+void ejemplo_funcion_ir() {
+	VirtualMachine vm;
+
+	Compiler cr;
+	auto& bb = cr.bb;
+
+	bb.begin_segment();
+
+	cr.compile_statement(new Ir::Block({
+		new Ir::Declare(),
+		new Ir::Assign(0, new Ir::Int(3)),
+	}));
+
+	cr.compile(new Ir::Call(
+		new Ir::Fun({0}, 1, new Ir::Block({
+			new Ir::Return(new Ir::Add(new Ir::Var(0), new Ir::Var(1))),
+		})),
+		{new Ir::Int(2)}));
+
+	bb.halt();
+
+	print_bytecode(bb.segments[0]);
+	print_bytecode(bb.segments[1]);
+
+	vm.segments = std::move(bb.segments);
+
+	vm.interpret(&vm.segments[0][0]);
+
+	std::cout << vm.temp.back().as_int << "\n";
+}
 
 void ejemplo_fibonacci_ir() {
 	VirtualMachine vm;
@@ -715,8 +811,11 @@ void ejemplo_fibonacci_ir() {
 	std::cout << b->as_int << "\n";
 }
 
+
 int main() {
 	ejemplo_funcion();
+	ejemplo_funcion_ir();
+
 	ejemplo_fibonacci();
 	ejemplo_fibonacci_ir();
 }
