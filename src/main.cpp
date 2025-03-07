@@ -1,3 +1,5 @@
+#include "abstract_syntax_tree.hpp"
+#include "ast_to_ir.hpp"
 #include "bytecode_builder.hpp"
 #include "compiler.hpp"
 #include "intermediate_representation.hpp"
@@ -18,6 +20,114 @@ void print_bytecode(std::vector<Bytecode> const& code) {
 	printf("\n");
 	printf("\n");
 }
+
+
+
+void ejemplo_funcion() {
+	VirtualMachine vm;
+
+	BytecodeBuilder bb;
+
+	bb.begin_segment();
+
+	bb.declare();
+	bb.access(0);
+	bb.push_int(3);
+	bb.write();
+
+	int s0 = bb.begin_segment();
+	bb.access(0);
+	bb.read();
+	bb.access(1);
+	bb.read();
+	bb.add();
+	bb.return_op();
+	int s1 = bb.end_segment(s0);
+
+	bb.access(0);
+	bb.push_fun(s1, 1);
+
+	bb.push_int(2);
+	bb.call(1);
+	bb.halt();
+
+	print_bytecode(bb.segments[0]);
+	print_bytecode(bb.segments[1]);
+
+	vm.segments = std::move(bb.segments);
+
+	vm.interpret(&vm.segments[0][0]);
+
+	std::cout << vm.temp.back().as_int << "\n";
+}
+
+void ejemplo_funcion_ir() {
+	VirtualMachine vm;
+
+	Compiler cr;
+	auto& bb = cr.bb;
+
+	bb.begin_segment();
+
+	cr.compile_statement(new Ir::Block({
+		new Ir::Declare(),
+		new Ir::Assign(0, new Ir::Int(3)),
+	}));
+
+	cr.compile(new Ir::Call(
+		new Ir::Fun({0}, 1, new Ir::Block({
+			new Ir::Return(new Ir::Add(new Ir::Var(0), new Ir::Var(1))),
+		})),
+		{new Ir::Int(2)}));
+
+	bb.halt();
+
+	print_bytecode(bb.segments[0]);
+	print_bytecode(bb.segments[1]);
+
+	vm.segments = std::move(bb.segments);
+
+	vm.interpret(&vm.segments[0][0]);
+
+	std::cout << vm.temp.back().as_int << "\n";
+}
+
+void ejemplo_funcion_ast() {
+	VirtualMachine vm;
+
+	Compiler cr;
+	auto& bb = cr.bb;
+
+	bb.begin_segment();
+
+	Ast::Stmt* ast1 = new Ast::Block({
+		new Ast::Declare("a"),
+		new Ast::Assign("a", new Ast::Int(3)),
+	});
+	Ir::Stmt* ir1 = ast_to_ir(ast1);
+	cr.compile_statement(ir1);
+
+	Ast::Expr* ast2 = new Ast::Call(
+		new Ast::Fun({"a"}, {"x"}, new Ast::Block({
+			new Ast::Return(new Ast::Add(new Ast::Var("x"), new Ast::Var("a"))),
+		})),
+		{new Ast::Int(2)});
+	Ir::Expr* ir2 = ast_to_ir(ast2, {"a"});
+	cr.compile(ir2);
+
+	bb.halt();
+
+	print_bytecode(bb.segments[0]);
+	print_bytecode(bb.segments[1]);
+
+	vm.segments = std::move(bb.segments);
+
+	vm.interpret(&vm.segments[0][0]);
+
+	std::cout << vm.temp.back().as_int << "\n";
+}
+
+
 
 void ejemplo_fibonacci() {
 	VirtualMachine vm;
@@ -106,75 +216,6 @@ void ejemplo_fibonacci() {
 	std::cout << b->as_int << "\n";
 }
 
-void ejemplo_funcion() {
-	VirtualMachine vm;
-
-	BytecodeBuilder bb;
-
-	bb.begin_segment();
-
-	bb.declare();
-	bb.access(0);
-	bb.push_int(3);
-	bb.write();
-
-	int s0 = bb.begin_segment();
-	bb.access(0);
-	bb.read();
-	bb.access(1);
-	bb.read();
-	bb.add();
-	bb.return_op();
-	int s1 = bb.end_segment(s0);
-
-	bb.access(0);
-	bb.push_fun(s1, 1);
-
-	bb.push_int(2);
-	bb.call(1);
-	bb.halt();
-
-	print_bytecode(bb.segments[0]);
-	print_bytecode(bb.segments[1]);
-
-	vm.segments = std::move(bb.segments);
-
-	vm.interpret(&vm.segments[0][0]);
-
-	std::cout << vm.temp.back().as_int << "\n";
-}
-
-void ejemplo_funcion_ir() {
-	VirtualMachine vm;
-
-	Compiler cr;
-	auto& bb = cr.bb;
-
-	bb.begin_segment();
-
-	cr.compile_statement(new Ir::Block({
-		new Ir::Declare(),
-		new Ir::Assign(0, new Ir::Int(3)),
-	}));
-
-	cr.compile(new Ir::Call(
-		new Ir::Fun({0}, 1, new Ir::Block({
-			new Ir::Return(new Ir::Add(new Ir::Var(0), new Ir::Var(1))),
-		})),
-		{new Ir::Int(2)}));
-
-	bb.halt();
-
-	print_bytecode(bb.segments[0]);
-	print_bytecode(bb.segments[1]);
-
-	vm.segments = std::move(bb.segments);
-
-	vm.interpret(&vm.segments[0][0]);
-
-	std::cout << vm.temp.back().as_int << "\n";
-}
-
 void ejemplo_fibonacci_ir() {
 	VirtualMachine vm;
 
@@ -231,10 +272,66 @@ void ejemplo_fibonacci_ir() {
 	std::cout << b->as_int << "\n";
 }
 
+void ejemplo_fibonacci_ast() {
+	VirtualMachine vm;
+
+	Compiler cr;
+	auto& bb = cr.bb;
+
+	bb.begin_segment();
+
+	Ast::Stmt* ast = new Ast::Block({
+		new Ast::Declare("n"),
+		new Ast::Assign("n", new Ast::Int(8)),
+
+		new Ast::Declare("c"),
+		new Ast::Assign("c", new Ast::Int(0)),
+
+		new Ast::Declare("b"),
+		new Ast::Assign("b", new Ast::Int(1)),
+
+		new Ast::Declare("a"),
+		new Ast::Assign("a", new Ast::Int(0)),
+
+		new Ast::While( new Ast::Var("n"),
+			new Ast::Block({
+
+				new Ast::Assign("c", new Ast::Add( new Ast::Var("a"), new Ast::Var("b"))),
+
+				new Ast::Assign("a", new Ast::Var("b")),
+
+				new Ast::Assign("b", new Ast::Var("c")),
+
+				new Ast::Assign("n", new Ast::Add( new Ast::Var("n"), new Ast::Int(-1))),
+		}))
+
+	});
+
+	Ir::Stmt* ir = ast_to_ir(ast);
+
+	cr.compile_statement(ir);
+
+	bb.halt();
+
+	print_bytecode(bb.segments[0]);
+
+	vm.segments = std::move(bb.segments);
+
+	vm.interpret(&vm.segments[0][0]);
+
+	auto b = vm.env[2];
+
+	std::cout << b->as_int << "\n";
+}
+
+
+
 int main() {
 	ejemplo_funcion();
 	ejemplo_funcion_ir();
+	ejemplo_funcion_ast();
 
 	ejemplo_fibonacci();
 	ejemplo_fibonacci_ir();
+	ejemplo_fibonacci_ast();
 }

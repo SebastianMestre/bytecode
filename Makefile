@@ -3,6 +3,8 @@ SOURCE = src
 BUILD = build
 
 MODULES = \
+	abstract_syntax_tree \
+	ast_to_ir \
 	bytecode \
 	bytecode_builder \
 	compiler \
